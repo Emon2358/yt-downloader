@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube Downloader</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; }
+    input, button, select { padding: .5rem; font-size: 1rem; margin: .2rem 0; }
+    button { margin-right: .5rem; }
+    #log { margin-top: 1rem; white-space: pre-wrap; background: #f0f0f0; padding: 1rem; height: 200px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>YouTube Downloader</h1>
+  <p>YouTube の URL を入力して、利用可能な MP4 および MP3 ストリームを選択してダウンロードできます。</p>
+  <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=xxxxx" size="40" />
+  <button id="btn-load">Load Streams</button>
+  <div id="selectors" style="display:none; margin-top:1rem;">
+    <div>
+      <label for="video-select"><strong>Video (MP4)</strong>:</label><br />
+      <select id="video-select"></select>
+      <button id="btn-mp4">Download Video</button>
+    </div>
+    <div style="margin-top:1rem;">
+      <label for="audio-select"><strong>Audio</strong>:</label><br />
+      <select id="audio-select"></select>
+      <button id="btn-mp3">Download Audio</button>
+    </div>
+  </div>
+
+  <div id="log"></div>
+
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.1/dist/ffmpeg.min.js"></script>
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+    const log = msg => {
+      const el = document.getElementById('log');
+      el.textContent += msg + '\n';
+      el.scrollTop = el.scrollHeight;
+    };
+
+    function extractVideoId(url) {
+      const m = url.match(/[?&]v=([^&]+)/) || url.match(/youtu\.be\/([^?&]+)/);
+      if (m) return m[1];
+      throw new Error('Invalid YouTube URL');
+    }
+
+    async function fetchStreams() {
+      const url = document.getElementById('url').value.trim();
+      try {
+        const vid = extractVideoId(url);
+        log('Fetching video info…');
+        const res = await fetch(`https://yewtu.be/api/v1/videos/${vid}`);
+        if (!res.ok) throw new Error('Invidious API error');
+        const info = await res.json();
+
+        const videoSel = document.getElementById('video-select');
+        const audioSel = document.getElementById('audio-select');
+        videoSel.innerHTML = '';
+        audioSel.innerHTML = '';
+
+        // Populate video streams (mp4)
+        info.formatStreams
+          .filter(f => f.mimeType.includes('mp4') && f.qualityLabel)
+          .sort((a,b) => parseInt(b.qualityLabel) - parseInt(a.qualityLabel))
+          .forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.url;
+            opt.text = `${f.qualityLabel} (${f.mimeType.split(';')[0]})`;
+            videoSel.appendChild(opt);
+          });
+
+        // Populate audio streams
+        info.formatStreams
+          .filter(f => f.mimeType.startsWith('audio'))
+          .forEach(f => {
+            const match = /bitrate=(\\d+)/.exec(f.mimeType) || [];
+            const bitrate = match[1] || 'unknown';
+            const opt = document.createElement('option');
+            opt.value = f.url;
+            opt.text = `${bitrate}bps (${f.mimeType.split(';')[0]})`;
+            audioSel.appendChild(opt);
+          });
+
+        document.getElementById('selectors').style.display = 'block';
+        log('Streams loaded.');
+      } catch (e) {
+        log('Error: ' + e.message);
+      }
+    }
+
+    function downloadURL(url, filename) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      log(`${filename} download started.`);
+    }
+
+    async function downloadVideo() {
+      const url = document.getElementById('video-select').value;
+      const vid = extractVideoId(document.getElementById('url').value);
+      downloadURL(url, `${vid}.mp4`);
+    }
+
+    async function downloadAudio() {
+      try {
+        const url = document.getElementById('audio-select').value;
+        const response = await fetch(url);
+        const data = await response.blob();
+        if (!ffmpeg.isLoaded()) {
+          log('Loading ffmpeg.wasm…');
+          await ffmpeg.load();
+        }
+        log('Converting audio to MP3 (320kbps)…');
+        ffmpeg.FS('writeFile', 'in.webm', await fetchFile(data));
+        await ffmpeg.run('-i', 'in.webm', '-b:a', '320k', 'out.mp3');
+        const out = ffmpeg.FS('readFile', 'out.mp3');
+        const blob = new Blob([out.buffer], { type: 'audio/mpeg' });
+        const vid = extractVideoId(document.getElementById('url').value);
+        const blobUrl = URL.createObjectURL(blob);
+        downloadURL(blobUrl, `${vid}.mp3`);
+      } catch (e) {
+        log('Error: ' + e.message);
+      }
+    }
+
+    document.getElementById('btn-load').addEventListener('click', fetchStreams);
+    document.getElementById('btn-mp4').addEventListener('click', downloadVideo);
+    document.getElementById('btn-mp3').addEventListener('click', downloadAudio);
+  </script>
+</body>
+</html>
