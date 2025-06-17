@@ -40,8 +40,8 @@
       el.scrollTop = el.scrollHeight;
     };
 
-    // CORS プロキシを利用して Invidious API へアクセス
-    const PROXY = 'https://api.allorigins.win/raw?url=';
+    // CORS プロキシを利用して Invidious API へアクセス (AllOrigins)
+    const PROXY = 'https://api.allorigins.win/get?url=';
     const INVIDIOUS_BASE = 'https://yewtu.be/api/v1/videos/';
 
     function extractVideoId(url) {
@@ -56,9 +56,12 @@
         const vid = extractVideoId(url);
         log('Fetching video info…');
         const apiUrl = PROXY + encodeURIComponent(INVIDIOUS_BASE + vid);
-        const res = await fetch(apiUrl);
-        if (!res.ok) throw new Error('Invidious API error');
-        const info = await res.json();
+        const wrapper = await fetch(apiUrl).then(r => {
+          if (!r.ok) throw new Error('CORS proxy error');
+          return r.json();
+        });
+        // wrapper.contents に文字列化された JSON が格納されている
+        const info = JSON.parse(wrapper.contents);
 
         const videoSel = document.getElementById('video-select');
         const audioSel = document.getElementById('audio-select');
