@@ -40,6 +40,10 @@
       el.scrollTop = el.scrollHeight;
     };
 
+    // CORS プロキシを利用して Invidious API へアクセス
+    const PROXY = 'https://api.allorigins.win/raw?url=';
+    const INVIDIOUS_BASE = 'https://yewtu.be/api/v1/videos/';
+
     function extractVideoId(url) {
       const m = url.match(/[?&]v=([^&]+)/) || url.match(/youtu\.be\/([^?&]+)/);
       if (m) return m[1];
@@ -51,7 +55,8 @@
       try {
         const vid = extractVideoId(url);
         log('Fetching video info…');
-        const res = await fetch(`https://yewtu.be/api/v1/videos/${vid}`);
+        const apiUrl = PROXY + encodeURIComponent(INVIDIOUS_BASE + vid);
+        const res = await fetch(apiUrl);
         if (!res.ok) throw new Error('Invidious API error');
         const info = await res.json();
 
@@ -60,7 +65,6 @@
         videoSel.innerHTML = '';
         audioSel.innerHTML = '';
 
-        // Populate video streams (mp4)
         info.formatStreams
           .filter(f => f.mimeType.includes('mp4') && f.qualityLabel)
           .sort((a,b) => parseInt(b.qualityLabel) - parseInt(a.qualityLabel))
@@ -71,7 +75,6 @@
             videoSel.appendChild(opt);
           });
 
-        // Populate audio streams
         info.formatStreams
           .filter(f => f.mimeType.startsWith('audio'))
           .forEach(f => {
